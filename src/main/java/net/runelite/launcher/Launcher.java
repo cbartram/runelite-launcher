@@ -102,6 +102,7 @@ public class Launcher {
 	private static HttpClient httpClient;
 
 	public static void main(String[] args) throws InterruptedException {
+		ClassLoader.getSystemClassLoader().setDefaultAssertionStatus(true);
 		OptionParser parser = new OptionParser(false);
 		parser.allowsUnrecognizedOptions();
 		parser.accepts("postinstall", "Perform post-install tasks");
@@ -192,7 +193,7 @@ public class Launcher {
 							.map(name -> new File(REPO_DIR, name))
 							.collect(Collectors.toList());
 					try {
-						ReflectionLauncher.launch(classpath, getClientArgs(settings));
+						ReflectionLauncher.launch(classpath, getClientArgs(settings), krakenData);
 					} catch (Exception e) {
 						log.error("error launching client", e);
 					}
@@ -394,7 +395,7 @@ public class Launcher {
 				if (settings.launchMode == LaunchMode.REFLECT) {
 					log.info("Using launch mode: REFLECT");
 					log.info("ClassPath: {}, Args: {}", classpath, clientArgs);
-					ReflectionLauncher.launch(classpath, clientArgs);
+					ReflectionLauncher.launch(classpath, clientArgs, krakenData);
 				} else if (settings.launchMode == LaunchMode.FORK || (settings.launchMode == LaunchMode.AUTO && ForkLauncher.canForkLaunch())) {
 					log.debug("Using launch mode: FORK");
 					ForkLauncher.launch(bootstrap, classpath, clientArgs, jvmProps, jvmParams);

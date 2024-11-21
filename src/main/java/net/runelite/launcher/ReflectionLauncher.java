@@ -39,7 +39,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 class ReflectionLauncher
 {
-	static void launch(List<File> classpath, Collection<String> clientArgs) throws MalformedURLException
+	static void launch(List<File> classpath, Collection<String> clientArgs, KrakenData krakenData) throws MalformedURLException
 	{
 		URL[] jarUrls = new URL[classpath.size()];
 		int i = 0;
@@ -61,16 +61,18 @@ class ReflectionLauncher
 			try
 			{
 				Class<?> mainClass = loader.loadClass(LauncherProperties.getMain());
-				Class<?> krakenPluginMainClass = loader.loadClass("com.kraken.KrakenLoaderPlugin");
-				log.info("Kraken main plugin class: {}", krakenPluginMainClass);
-				Class<?> externalPluginManagerClass = loader.loadClass("net.runelite.client.externalplugins.ExternalPluginManager");
-				log.info("external plugin manager class: {}", externalPluginManagerClass);
 
-				// Before we invoke the main class, check to see if RuneLite mode is enabled
-				// and load the ExternalPluginManager.loadBuiltIns
-//				ExternalPluginManager.loadBuiltin((Class<? extends Plugin>) krakenClientClasses.get(KRAKEN_CLIENT_PLUGIN_NAME));
-				Method loadBuiltinMethod = externalPluginManagerClass.getMethod("loadBuiltin", Class[].class);
-				loadBuiltinMethod.invoke(null, (Object) new Class[]{krakenPluginMainClass});
+				// Before we invoke the main class, check to see if RuneLite mode is disabled. If so we are clear
+				// to load Kraken plugins
+				if(!krakenData.rlMode) {
+					log.info("RuneLite mode: disabled. Loading Kraken Plugin class");
+					Class<?> krakenPluginMainClass = loader.loadClass("com.kraken.KrakenLoaderPlugin");
+					Class<?> externalPluginManagerClass = loader.loadClass("net.runelite.client.externalplugins.ExternalPluginManager");
+					Method loadBuiltinMethod = externalPluginManagerClass.getMethod("loadBuiltin", Class[].class);
+					loadBuiltinMethod.invoke(null, (Object) new Class[]{krakenPluginMainClass});
+				} else {
+					log.info("RuneLite mode: enabled. Skipping Kraken classes.");
+				}
 
 				Method main = mainClass.getMethod("main", String[].class);
 				main.invoke(null, (Object) clientArgs.toArray(new String[0]));
