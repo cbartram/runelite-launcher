@@ -38,7 +38,7 @@ public class KrakenPersistentSettings {
         }
 
         if (options.has("krakenprofile")) {
-            data.hydraProfile = String.valueOf(options.valueOf("krakenprofile"));
+            data.krakenProfile = String.valueOf(options.valueOf("krakenprofile"));
         }
 
         if (options.has("remote-debug")) {
@@ -48,7 +48,7 @@ public class KrakenPersistentSettings {
     }
 
     static KrakenPersistentSettings loadSettings() {
-        File settingsFile = new File("hydraprefs.json");
+        File settingsFile = new File(KRAKEN_SETTINGS);
 
         try (InputStreamReader in = new InputStreamReader(new FileInputStream(settingsFile), StandardCharsets.UTF_8)) {
             KrakenPersistentSettings settings = (new Gson()).fromJson(in, KrakenPersistentSettings.class);
@@ -61,10 +61,10 @@ public class KrakenPersistentSettings {
     }
 
     static void saveSettings(KrakenPersistentSettings settings) {
-        File settingsFile = (new File("krakenprefs.json")).getAbsoluteFile();
+        File settingsFile = (new File(KRAKEN_SETTINGS)).getAbsoluteFile();
 
         try {
-            File tmpFile = File.createTempFile("krakenprefs.json", "json");
+            File tmpFile = File.createTempFile(KRAKEN_SETTINGS, "json");
             Gson gson = new Gson();
 
             try (
@@ -83,7 +83,8 @@ public class KrakenPersistentSettings {
             } catch (AtomicMoveNotSupportedException var12) {
                 Files.move(tmpFile.toPath(), settingsFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
-        } catch (IOException var16) {
+        } catch (IOException e) {
+            e.printStackTrace();
             settingsFile.delete();
         }
     }

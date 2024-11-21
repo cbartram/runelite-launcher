@@ -94,9 +94,10 @@ public class FatalErrorDialog extends JDialog
 		{
 		}
 
-		try (var in = FatalErrorDialog.class.getResourceAsStream("kraken.png"))
+		try (var in = FatalErrorDialog.class.getResourceAsStream("kraken_small.png"))
 		{
 			BufferedImage logo = ImageIO.read(in);
+
 			JLabel runelite = new JLabel();
 			runelite.setIcon(new ImageIcon(logo));
 			runelite.setAlignmentX(Component.CENTER_ALIGNMENT);

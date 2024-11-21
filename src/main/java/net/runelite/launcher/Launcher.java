@@ -101,8 +101,7 @@ public class Launcher {
 
 	private static HttpClient httpClient;
 
-	public static void main(String[] args)
-	{
+	public static void main(String[] args) throws InterruptedException {
 		OptionParser parser = new OptionParser(false);
 		parser.allowsUnrecognizedOptions();
 		parser.accepts("postinstall", "Perform post-install tasks");
@@ -163,6 +162,8 @@ public class Launcher {
 			ConfigurationFrame.open();
 		} else {
 			LauncherSettings settings = LauncherSettings.loadSettings();
+			// Always use reflect
+			settings.setLaunchMode(LaunchMode.REFLECT);
 			KrakenPersistentSettings krakenSettings = KrakenPersistentSettings.loadSettings();
 			settings.apply(options);
 			krakenSettings.apply(options, krakenData);
@@ -391,7 +392,8 @@ public class Launcher {
 				jvmParams.addAll(getJvmArgs(settings));
 
 				if (settings.launchMode == LaunchMode.REFLECT) {
-					log.debug("Using launch mode: REFLECT");
+					log.info("Using launch mode: REFLECT");
+					log.info("ClassPath: {}, Args: {}", classpath, clientArgs);
 					ReflectionLauncher.launch(classpath, clientArgs);
 				} else if (settings.launchMode == LaunchMode.FORK || (settings.launchMode == LaunchMode.AUTO && ForkLauncher.canForkLaunch())) {
 					log.debug("Using launch mode: FORK");
@@ -418,6 +420,7 @@ public class Launcher {
 				log.error("Failure during startup", e);
 				throw e;
 			} finally {
+				Thread.sleep(1100);
 				SplashScreen.stop();
 			}
 		}
@@ -559,6 +562,7 @@ public class Launcher {
 		var envArgs = System.getenv("RUNELITE_VMARGS");
 		if (!Strings.isNullOrEmpty(envArgs))
 		{
+			args.add("-ea");
 			args.addAll(Splitter.on(' ')
 				.omitEmptyStrings()
 				.trimResults()
@@ -751,13 +755,14 @@ public class Launcher {
 		for (Artifact artifact : artifacts)
 		{
 			String expectedHash = artifact.getHash();
-			String fileHash;
+			String fileHash = "";
 			try
 			{
 				fileHash = hash(new File(REPO_DIR, artifact.getName()));
 			}
 			catch (IOException e)
 			{
+				log.info("Hash: {} for Jar: {}", fileHash, artifact.getName());
 				throw new VerificationException("unable to hash file", e);
 			}
 

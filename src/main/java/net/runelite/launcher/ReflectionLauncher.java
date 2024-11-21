@@ -32,6 +32,8 @@ import java.net.URLClassLoader;
 import java.util.Collection;
 import java.util.List;
 import javax.swing.UIManager;
+
+import com.sun.source.util.Plugin;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -59,6 +61,16 @@ class ReflectionLauncher
 			try
 			{
 				Class<?> mainClass = loader.loadClass(LauncherProperties.getMain());
+				Class<?> krakenPluginMainClass = loader.loadClass("com.kraken.KrakenLoaderPlugin");
+				log.info("Kraken main plugin class: {}", krakenPluginMainClass);
+				Class<?> externalPluginManagerClass = loader.loadClass("net.runelite.client.externalplugins.ExternalPluginManager");
+				log.info("external plugin manager class: {}", externalPluginManagerClass);
+
+				// Before we invoke the main class, check to see if RuneLite mode is enabled
+				// and load the ExternalPluginManager.loadBuiltIns
+//				ExternalPluginManager.loadBuiltin((Class<? extends Plugin>) krakenClientClasses.get(KRAKEN_CLIENT_PLUGIN_NAME));
+				Method loadBuiltinMethod = externalPluginManagerClass.getMethod("loadBuiltin", Class[].class);
+				loadBuiltinMethod.invoke(null, (Object) new Class[]{krakenPluginMainClass});
 
 				Method main = mainClass.getMethod("main", String[].class);
 				main.invoke(null, (Object) clientArgs.toArray(new String[0]));
