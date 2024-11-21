@@ -57,15 +57,18 @@ public class ConfigurationFrame extends JFrame
 	private final JCheckBox chkboxSkipTlsVerification;
 	private final JCheckBox chkboxNoUpdates;
 	private final JCheckBox chkboxSafemode;
+	private final JCheckBox chkboxRl;
+	private final JTextField txtProxy;
+	private final JTextField txtMaxMem;
 	private final JTextField txtScale;
 	private final JTextArea txtClientArguments;
 	private final JTextArea txtJvmArguments;
 	private final JComboBox<HardwareAccelerationMode> comboHardwareAccelMode;
 	private final JComboBox<LaunchMode> comboLaunchMode;
 
-	private ConfigurationFrame(LauncherSettings settings)
+	private ConfigurationFrame(LauncherSettings settings, KrakenPersistentSettings krakenSettings)
 	{
-		setTitle("RuneLite Launcher Configuration");
+		setTitle("Kraken Launcher Configuration");
 
 		BufferedImage iconImage;
 		try (var in = ConfigurationFrame.class.getResourceAsStream(LauncherProperties.getRuneLite128()))
@@ -88,6 +91,7 @@ public class ConfigurationFrame extends JFrame
 		topPanel.setBackground(DARKER_GRAY_COLOR);
 		topPanel.setLayout(new GridLayout(3, 2, 0, 0));
 		topPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+		this.chkboxRl = this.addRuneLiteCheckbox(topPanel, krakenSettings);
 
 		topPanel.add(chkboxDebug = checkbox(
 			"Debug",
@@ -149,6 +153,9 @@ public class ConfigurationFrame extends JFrame
 		bottomPanel.setBackground(DARKER_GRAY_COLOR);
 		bottomPanel.setLayout(new GridLayout(3, 2, 0, 0));
 
+		this.txtMaxMem = this.addMaxMemText(bottomPanel, krakenSettings);
+		this.txtProxy = this.addProxyText(bottomPanel, krakenSettings);
+
 		bottomPanel.add(label(
 			"Scale",
 			"Scaling factor for Java 2D"
@@ -190,8 +197,7 @@ public class ConfigurationFrame extends JFrame
 		setMinimumSize(getSize());
 	}
 
-	private void save(ActionEvent l)
-	{
+	private void save(ActionEvent l) {
 		var settings = LauncherSettings.loadSettings();
 		settings.debug = chkboxDebug.isSelected();
 		settings.nodiffs = chkboxNoDiffs.isSelected();
@@ -201,8 +207,7 @@ public class ConfigurationFrame extends JFrame
 
 		var t = txtScale.getText();
 		settings.scale = null;
-		if (!t.isEmpty())
-		{
+		if (!t.isEmpty()) {
 			try
 			{
 				settings.scale = Double.parseDouble(t);
@@ -226,9 +231,8 @@ public class ConfigurationFrame extends JFrame
 		settings.launchMode = (LaunchMode) comboLaunchMode.getSelectedItem();
 
 		LauncherSettings.saveSettings(settings);
-
+		this.applyKrakenSettings();
 		log.info("Updated launcher configuration:" + System.lineSeparator() + "{}", settings.configurationStr());
-
 		dispose();
 	}
 
@@ -260,6 +264,12 @@ public class ConfigurationFrame extends JFrame
 		return checkbox;
 	}
 
+	private JCheckBox addRuneLiteCheckbox(JPanel topPanel, KrakenPersistentSettings settings) {
+		JCheckBox box = checkbox("RuneLite mode", "Excludes all the Kraken additions", Boolean.TRUE.equals(settings.rlMode));
+		topPanel.add(box);
+		return box;
+	}
+
 	private static <E> JComboBox<E> combobox(E[] values, E default_)
 	{
 		var combobox = new JComboBox<>(values);
@@ -269,8 +279,30 @@ public class ConfigurationFrame extends JFrame
 
 	static void open()
 	{
-		new ConfigurationFrame(LauncherSettings.loadSettings())
+		new ConfigurationFrame(LauncherSettings.loadSettings(), KrakenPersistentSettings.loadSettings())
 			.setVisible(true);
+	}
+
+	private JTextField addProxyText(JPanel bottomPanel, KrakenPersistentSettings settings) {
+		bottomPanel.add(label("Proxy", "Proxy to load the client with."));
+		JTextField textField = field(settings.proxy);
+		bottomPanel.add(textField);
+		return textField;
+	}
+
+	private JTextField addMaxMemText(JPanel bottomPanel, KrakenPersistentSettings settings) {
+		bottomPanel.add(label("Max Memory", "Amount of memory to load the client with"));
+		JTextField textField = field(settings.maxMem);
+		bottomPanel.add(textField);
+		return textField;
+	}
+
+	private void applyKrakenSettings() {
+		KrakenPersistentSettings settings = KrakenPersistentSettings.loadSettings();
+		settings.rlMode = this.chkboxRl.isSelected();
+		settings.proxy = this.txtProxy.getText();
+		settings.maxMem = this.txtMaxMem.getText();
+		KrakenPersistentSettings.saveSettings(settings);
 	}
 
 	public static void main(String[] args)

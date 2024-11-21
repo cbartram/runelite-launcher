@@ -1,55 +1,24 @@
-/*
- * Copyright (c) 2019 Abex
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-package net.runelite.launcher;
+package com.krakenlauncher;
 
-import java.awt.Color;
-import java.awt.Container;
-import java.awt.Font;
+import lombok.extern.slf4j.Slf4j;
+import net.runelite.launcher.Launcher;
+
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.plaf.basic.BasicProgressBarUI;
+import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
-import javax.annotation.Nullable;
-import javax.imageio.ImageIO;
-import javax.swing.ImageIcon;
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.JProgressBar;
-import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
-import javax.swing.Timer;
-import javax.swing.UIManager;
-import javax.swing.border.EmptyBorder;
-import javax.swing.plaf.basic.BasicProgressBarUI;
-import lombok.extern.slf4j.Slf4j;
+
 
 @Slf4j
-public class SplashScreen extends JFrame implements ActionListener
-{
-	private static final Color BRAND_ORANGE = new Color(220, 138, 0);
+public class SplashScreen extends JFrame implements ActionListener {
+	private static final Color BRAND_GREEN = new Color(105, 163, 60, 255);
 	private static final Color DARKER_GRAY_COLOR = new Color(30, 30, 30);
 
 	private static final int WIDTH = 200;
@@ -67,27 +36,19 @@ public class SplashScreen extends JFrame implements ActionListener
 	private volatile String subActionText = "";
 	private volatile String progressText = null;
 
-	private SplashScreen() throws IOException
-	{
-		setTitle("RuneLite Launcher");
-
+	private SplashScreen() throws IOException {
+		setTitle("Kraken Launcher");
 		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		setUndecorated(true);
-		try (var in = SplashScreen.class.getResourceAsStream(LauncherProperties.getRuneLite128()))
-		{
-			setIconImage(ImageIO.read(in));
-		}
+		BufferedImage logo = loadImageResource(Launcher.class, "/net/runelite/launcher/kraken.png");
+		logo = resizeImage(logo, 128, 128, false);
+		setIconImage(logo);
+
 		setLayout(null);
 		Container pane = getContentPane();
 		pane.setBackground(DARKER_GRAY_COLOR);
 
 		Font font = new Font(Font.DIALOG, Font.PLAIN, 12);
-
-		BufferedImage logo;
-		try (var in = SplashScreen.class.getResourceAsStream(LauncherProperties.getRuneLiteSplash()))
-		{
-			logo = ImageIO.read(in);
-		}
 		JLabel logoLabel = new JLabel(new ImageIcon(logo));
 		pane.add(logoLabel);
 		logoLabel.setBounds(0, 0, WIDTH, WIDTH);
@@ -102,8 +63,8 @@ public class SplashScreen extends JFrame implements ActionListener
 		y += action.getHeight() + PAD;
 
 		pane.add(progress);
-		progress.setForeground(BRAND_ORANGE);
-		progress.setBackground(BRAND_ORANGE.darker().darker());
+		progress.setForeground(BRAND_GREEN);
+		progress.setBackground(BRAND_GREEN.darker().darker());
 		progress.setBorder(new EmptyBorder(0, 0, 0, 0));
 		progress.setBounds(0, y, WIDTH, 14);
 		progress.setFont(font);
@@ -140,6 +101,87 @@ public class SplashScreen extends JFrame implements ActionListener
 		setVisible(true);
 	}
 
+	private static BufferedImage loadImageResource(Class<?> c, String path) throws IOException {
+		try (InputStream in = c.getResourceAsStream(path)) {
+			synchronized(ImageIO.class) {
+				if(in != null) {
+					return ImageIO.read(in);
+				}
+			}
+		} catch (IllegalArgumentException e) {
+			String filePath;
+			if (path.startsWith("/")) {
+				filePath = path;
+			} else {
+				String var10000 = c.getPackage().getName().replace('.', '/');
+				filePath = var10000 + "/" + path;
+			}
+
+			log.warn("Failed to load image from class: {}, path: {}", c.getName(), filePath);
+			throw new IllegalArgumentException(path, e);
+		} catch (IOException e) {
+			throw new RuntimeException(path, e);
+		}
+		throw new IOException("Failed to read image from input stream.");
+	}
+
+	/**
+	 * Creates a {@link BufferedImage} from an {@link Image}.
+	 *
+	 * @param image An Image to be converted to a BufferedImage.
+	 * @return      A BufferedImage instance of the same given image.
+	 */
+	private static BufferedImage bufferedImageFromImage(final Image image) {
+		if (image instanceof BufferedImage) {
+			return (BufferedImage) image;
+		}
+
+		return toARGB(image);
+	}
+
+	/**
+	 * Creates an ARGB {@link BufferedImage} from an {@link Image}.
+	 */
+	private static BufferedImage toARGB(final Image image)
+	{
+		if (image instanceof BufferedImage && ((BufferedImage) image).getType() == BufferedImage.TYPE_INT_ARGB)
+		{
+			return (BufferedImage) image;
+		}
+
+		BufferedImage out = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+		Graphics2D g2d = out.createGraphics();
+		g2d.drawImage(image, 0, 0, null);
+		g2d.dispose();
+		return out;
+	}
+
+
+	/**
+	 * Re-size a BufferedImage to the given dimensions.
+	 *
+	 * @param image the BufferedImage.
+	 * @param newWidth The width to set the BufferedImage to.
+	 * @param newHeight The height to set the BufferedImage to.
+	 * @param preserveAspectRatio Whether to preserve the original image's aspect ratio. When {@code true}, the image
+	 *                               will be scaled to have a maximum of {@code newWidth} width and {@code newHeight}
+	 *                               height.
+	 * @return The BufferedImage with the specified dimensions
+	 */
+	private static BufferedImage resizeImage(final BufferedImage image, final int newWidth, final int newHeight, final boolean preserveAspectRatio) {
+		final Image resized;
+		if (preserveAspectRatio) {
+			if (image.getWidth() > image.getHeight()) {
+				resized = image.getScaledInstance(newWidth, -1, Image.SCALE_SMOOTH);
+			} else {
+				resized = image.getScaledInstance(-1, newHeight, Image.SCALE_SMOOTH);
+			}
+		} else {
+			resized = image.getScaledInstance(newWidth, newHeight, Image.SCALE_SMOOTH);
+		}
+		return bufferedImageFromImage(resized);
+	}
+
 	@Override
 	public void actionPerformed(ActionEvent e)
 	{
@@ -149,96 +191,69 @@ public class SplashScreen extends JFrame implements ActionListener
 		progress.setValue((int) (overallProgress * 1000));
 
 		String progressText = this.progressText;
-		if (progressText == null)
-		{
+		if (progressText == null) {
 			progress.setStringPainted(false);
-		}
-		else
-		{
+		} else {
 			progress.setStringPainted(true);
 			progress.setString(progressText);
 		}
 	}
 
-	public static void init()
-	{
-		try
-		{
-			SwingUtilities.invokeAndWait(() ->
-			{
-				if (INSTANCE != null)
-				{
+	public static void init() {
+		try {
+			SwingUtilities.invokeAndWait(() -> {
+				if (INSTANCE != null) {
 					return;
 				}
 
-				try
-				{
+				try {
 					UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
 					INSTANCE = new SplashScreen();
 				}
-				catch (Exception e)
-				{
+				catch (Exception e) {
 					log.warn("Unable to start splash screen", e);
 				}
 			});
 		}
-		catch (InterruptedException | InvocationTargetException bs)
-		{
+		catch (InterruptedException | InvocationTargetException bs) {
 			throw new RuntimeException(bs);
 		}
 	}
 
-	public static void stop()
-	{
-		SwingUtilities.invokeLater(() ->
-		{
-			if (INSTANCE == null)
-			{
+	public static void stop() {
+		SwingUtilities.invokeLater(() -> {
+			if (INSTANCE == null) {
 				return;
 			}
 
 			INSTANCE.timer.stop();
-			// The CLOSE_ALL_WINDOWS quit strategy on MacOS dispatches WINDOW_CLOSING events to each frame
-			// from Window.getWindows. However, getWindows uses weak refs and relies on gc to remove windows
-			// from its list, causing events to get dispatched to disposed frames. The frames handle the events
-			// regardless of being disposed and will run the configured close operation. Set the close operation
-			// to DO_NOTHING_ON_CLOSE prior to disposing to prevent this.
 			INSTANCE.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 			INSTANCE.dispose();
 			INSTANCE = null;
 		});
 	}
 
-	public static void stage(double overallProgress, @Nullable String actionText, String subActionText)
-	{
+	public static void stage(double overallProgress, String actionText, String subActionText) {
 		stage(overallProgress, actionText, subActionText, null);
 	}
 
-	public static void stage(double startProgress, double endProgress,
-		@Nullable String actionText, String subActionText,
-		int done, int total, boolean mib)
-	{
+	public static void stage(double startProgress, double endProgress, String actionText, String subActionText,
+							 int done, int total, boolean mib) {
 		String progress;
-		if (mib)
-		{
+		if (mib) {
 			final double MiB = 1024 * 1024;
 			final double CEIL = 1.d / 10.d;
 			progress = String.format("%.1f / %.1f MiB", done / MiB, (total / MiB) + CEIL);
-		}
-		else
-		{
+		} else {
 			progress = done + " / " + total;
 		}
 		stage(startProgress + ((endProgress - startProgress) * done / total), actionText, subActionText, progress);
 	}
 
-	public static void stage(double overallProgress, @Nullable String actionText, String subActionText, @Nullable String progressText)
-	{
-		if (INSTANCE != null)
-		{
+	public static void stage(double overallProgress, String actionText, String subActionText, String progressText) {
+		if (INSTANCE != null) {
 			INSTANCE.overallProgress = overallProgress;
-			if (actionText != null)
-			{
+			if (actionText != null) {
 				INSTANCE.actionText = actionText;
 			}
 			INSTANCE.subActionText = subActionText;

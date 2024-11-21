@@ -75,6 +75,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import javax.swing.SwingUtilities;
+
+import com.krakenlauncher.SplashScreen;
 import joptsimple.OptionException;
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
@@ -86,8 +88,7 @@ import net.runelite.launcher.beans.Platform;
 import org.slf4j.LoggerFactory;
 
 @Slf4j
-public class Launcher
-{
+public class Launcher {
 	static final File RUNELITE_DIR = new File(System.getProperty("user.home"), ".runelite");
 	static final File LOGS_DIR = new File(RUNELITE_DIR, "logs");
 	static final File REPO_DIR = new File(RUNELITE_DIR, "repository2");
@@ -96,6 +97,7 @@ public class Launcher
 	static final String LAUNCHER_EXECUTABLE_NAME_WIN = "RuneLite.exe";
 	static final String LAUNCHER_EXECUTABLE_NAME_OSX = "RuneLite";
 	static boolean nativesLoaded;
+	static final KrakenData krakenData = new KrakenData();
 
 	private static HttpClient httpClient;
 
@@ -122,6 +124,7 @@ public class Launcher
 		parser.accepts("mode", "Alias of hw-accel")
 			.withRequiredArg()
 			.ofType(HardwareAccelerationMode.class);
+		addKrakenArgs(parser);
 
 		if (OS.getOs() == OS.OSType.MacOS)
 		{
@@ -156,307 +159,267 @@ public class Launcher
 			System.exit(0);
 		}
 
-		if (options.has("configure"))
-		{
+		if (options.has("configure")) {
 			ConfigurationFrame.open();
-			return;
-		}
+		} else {
+			LauncherSettings settings = LauncherSettings.loadSettings();
+			KrakenPersistentSettings krakenSettings = KrakenPersistentSettings.loadSettings();
+			settings.apply(options);
+			krakenSettings.apply(options, krakenData);
+			final boolean postInstall = options.has("postinstall");
 
-		final LauncherSettings settings = LauncherSettings.loadSettings();
-		settings.apply(options);
-
-		final boolean postInstall = options.has("postinstall");
-
-		// Setup logging
-		LOGS_DIR.mkdirs();
-		if (settings.isDebug())
-		{
-			final Logger logger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
-			logger.setLevel(Level.DEBUG);
-		}
-
-		initDll();
-
-		// RTSS triggers off of the CreateWindow event, so this needs to be in place early, prior to splash screen
-		initDllBlacklist();
-
-		try
-		{
-			if (options.has("classpath"))
-			{
-				TrustManagerUtil.setupTrustManager();
-
-				// being called from ForkLauncher. All JVM options are already set.
-				var classpathOpt = String.valueOf(options.valueOf("classpath"));
-				var classpath = Streams.stream(Splitter.on(File.pathSeparatorChar)
-					.split(classpathOpt))
-					.map(name -> new File(REPO_DIR, name))
-					.collect(Collectors.toList());
-				try
-				{
-					ReflectionLauncher.launch(classpath, getClientArgs(settings));
-				}
-				catch (Exception e)
-				{
-					log.error("error launching client", e);
-				}
-				return;
+			// Setup logging
+			LOGS_DIR.mkdirs();
+			if (settings.isDebug()) {
+				final Logger logger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+				logger.setLevel(Level.DEBUG);
 			}
 
-			final Map<String, String> jvmProps = new LinkedHashMap<>();
-			if (settings.scale != null)
-			{
-				// This calls SetProcessDPIAware(). Since the RuneLite.exe manifest is DPI unaware
-				// Windows will scale the application if this isn't called. Thus the default scaling
-				// mode is Windows scaling due to being DPI unaware.
-				// https://docs.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows
-				jvmProps.put("sun.java2d.dpiaware", "true");
-				// This sets the Java 2D scaling factor, overriding the default behavior of detecting the scale via
-				// GetDpiForMonitor.
-				jvmProps.put("sun.java2d.uiScale", Double.toString(settings.scale));
-			}
+			initDll();
 
-			final var hardwareAccelMode = settings.hardwareAccelerationMode == HardwareAccelerationMode.AUTO ?
-				HardwareAccelerationMode.defaultMode(OS.getOs()) : settings.hardwareAccelerationMode;
-			jvmProps.putAll(hardwareAccelMode.toParams(OS.getOs()));
+			// RTSS triggers off of the CreateWindow event, so this needs to be in place early, prior to splash screen
+			initDllBlacklist();
 
-			// As of JDK-8243269 (11.0.8) and JDK-8235363 (14), AWT makes macOS dark mode support opt-in so interfaces
-			// with hardcoded foreground/background colours don't get broken by system settings. Considering the native
-			// Aqua we draw consists a window border and an about box, it's safe to say we can opt in.
-			if (OS.getOs() == OS.OSType.MacOS)
-			{
-				jvmProps.put("apple.awt.application.appearance", "system");
-			}
+			try {
+				if (options.has("classpath")) {
+					TrustManagerUtil.setupTrustManager();
 
-			// Stream launcher version
-			jvmProps.put(LauncherProperties.getVersionKey(), LauncherProperties.getVersion());
-
-			if (settings.isSkipTlsVerification())
-			{
-				jvmProps.put("runelite.insecure-skip-tls-verification", "true");
-			}
-
-			log.info("RuneLite Launcher version {}", LauncherProperties.getVersion());
-			log.info("Launcher configuration:" + System.lineSeparator() + "{}", settings.configurationStr());
-			log.info("OS name: {}, version: {}, arch: {}", System.getProperty("os.name"), System.getProperty("os.version"), System.getProperty("os.arch"));
-			log.info("Using hardware acceleration mode: {}", hardwareAccelMode);
-
-			// java2d properties have to be set prior to the graphics environment startup
-			setJvmParams(jvmProps);
-
-			if (settings.isSkipTlsVerification())
-			{
-				TrustManagerUtil.setupInsecureTrustManager();
-				// This is the only way to disable hostname verification with HttpClient - https://stackoverflow.com/a/52995420
-				System.setProperty("jdk.internal.httpclient.disableHostnameVerification", Boolean.TRUE.toString());
-			}
-			else
-			{
-				TrustManagerUtil.setupTrustManager();
-			}
-
-			// setup http client after the default SSLContext is set
-			httpClient = HttpClient.newBuilder()
-				.followRedirects(HttpClient.Redirect.ALWAYS)
-				.build();
-
-			if (postInstall)
-			{
-				postInstall();
-				return;
-			}
-
-			SplashScreen.init();
-			SplashScreen.stage(0, "Preparing", "Setting up environment");
-
-			// Print out system info
-			if (log.isDebugEnabled())
-			{
-				final RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();
-
-				log.debug("Command line arguments: {}", String.join(" ", args));
-				// This includes arguments from _JAVA_OPTIONS, which are parsed after command line flags and applied to
-				// the global VM args
-				log.debug("Java VM arguments: {}", String.join(" ", runtime.getInputArguments()));
-				log.debug("Java Environment:");
-				final Properties p = System.getProperties();
-				final Enumeration<Object> keys = p.keys();
-
-				while (keys.hasMoreElements())
-				{
-					final String key = (String) keys.nextElement();
-					final String value = (String) p.get(key);
-					log.debug("  {}: {}", key, value);
-				}
-			}
-
-			// fix up permissions before potentially removing the RUNASADMIN compat key
-			if (FilesystemPermissions.check())
-			{
-				// check() opens an error dialog
-				return;
-			}
-
-			if (JagexLauncherCompatibility.check())
-			{
-				// check() opens an error dialog
-				return;
-			}
-
-			if (!REPO_DIR.exists() && !REPO_DIR.mkdirs())
-			{
-				log.error("unable to create directory {}", REPO_DIR);
-				SwingUtilities.invokeLater(() -> new FatalErrorDialog("Unable to create RuneLite directory " + REPO_DIR.getAbsolutePath() + ". Check your filesystem permissions are correct.").open());
-				return;
-			}
-
-			SplashScreen.stage(.05, null, "Downloading bootstrap");
-			Bootstrap bootstrap;
-			try
-			{
-				bootstrap = getBootstrap();
-			}
-			catch (IOException | VerificationException | CertificateException | SignatureException | InvalidKeyException | NoSuchAlgorithmException ex)
-			{
-				log.error("error fetching bootstrap", ex);
-
-				String extract = CertPathExtractor.extract(ex);
-				if (extract != null)
-				{
-					log.error("untrusted certificate chain: {}", extract);
+					// being called from ForkLauncher. All JVM options are already set.
+					var classpathOpt = String.valueOf(options.valueOf("classpath"));
+					var classpath = Streams.stream(Splitter.on(File.pathSeparatorChar)
+									.split(classpathOpt))
+							.map(name -> new File(REPO_DIR, name))
+							.collect(Collectors.toList());
+					try {
+						ReflectionLauncher.launch(classpath, getClientArgs(settings));
+					} catch (Exception e) {
+						log.error("error launching client", e);
+					}
+					return;
 				}
 
-				SwingUtilities.invokeLater(() -> FatalErrorDialog.showNetErrorWindow("downloading the bootstrap", ex));
-				return;
-			}
+				final Map<String, String> jvmProps = new LinkedHashMap<>();
+				if (settings.scale != null) {
+					// This calls SetProcessDPIAware(). Since the RuneLite.exe manifest is DPI unaware
+					// Windows will scale the application if this isn't called. Thus the default scaling
+					// mode is Windows scaling due to being DPI unaware.
+					// https://docs.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows
+					jvmProps.put("sun.java2d.dpiaware", "true");
+					// This sets the Java 2D scaling factor, overriding the default behavior of detecting the scale via
+					// GetDpiForMonitor.
+					jvmProps.put("sun.java2d.uiScale", Double.toString(settings.scale));
+				}
 
-			SplashScreen.stage(.07, null, "Checking for updates");
+				final var hardwareAccelMode = settings.hardwareAccelerationMode == HardwareAccelerationMode.AUTO ?
+						HardwareAccelerationMode.defaultMode(OS.getOs()) : settings.hardwareAccelerationMode;
+				jvmProps.putAll(hardwareAccelMode.toParams(OS.getOs()));
 
-			Updater.update(bootstrap, settings, args);
+				// As of JDK-8243269 (11.0.8) and JDK-8235363 (14), AWT makes macOS dark mode support opt-in so interfaces
+				// with hardcoded foreground/background colours don't get broken by system settings. Considering the native
+				// Aqua we draw consists a window border and an about box, it's safe to say we can opt in.
+				if (OS.getOs() == OS.OSType.MacOS) {
+					jvmProps.put("apple.awt.application.appearance", "system");
+				}
 
-			SplashScreen.stage(.10, null, "Tidying the cache");
+				// Stream launcher version
+				jvmProps.put(LauncherProperties.getVersionKey(), LauncherProperties.getVersion());
 
-			if (jvmOutdated(bootstrap))
-			{
-				// jvmOutdated opens an error dialog
-				return;
-			}
+				if (settings.isSkipTlsVerification()) {
+					jvmProps.put("runelite.insecure-skip-tls-verification", "true");
+				}
 
-			// update packr vmargs to the launcher vmargs from bootstrap.
-			PackrConfig.updateLauncherArgs(bootstrap);
+				log.info("RuneLite Launcher version {}", LauncherProperties.getVersion());
+				log.info("Launcher configuration:" + System.lineSeparator() + "{}", settings.configurationStr());
+				log.info("OS name: {}, version: {}, arch: {}", System.getProperty("os.name"), System.getProperty("os.version"), System.getProperty("os.arch"));
+				log.info("Using hardware acceleration mode: {}", hardwareAccelMode);
 
-			// Determine artifacts for this OS
-			List<Artifact> artifacts = Arrays.stream(bootstrap.getArtifacts())
-				.filter(a ->
-				{
-					if (a.getPlatform() == null)
-					{
-						return true;
+				// java2d properties have to be set prior to the graphics environment startup
+				setJvmParams(jvmProps);
+
+				if (settings.isSkipTlsVerification()) {
+					TrustManagerUtil.setupInsecureTrustManager();
+					// This is the only way to disable hostname verification with HttpClient - https://stackoverflow.com/a/52995420
+					System.setProperty("jdk.internal.httpclient.disableHostnameVerification", Boolean.TRUE.toString());
+				} else {
+					TrustManagerUtil.setupTrustManager();
+				}
+
+				// setup http client after the default SSLContext is set
+				httpClient = HttpClient.newBuilder()
+						.followRedirects(HttpClient.Redirect.ALWAYS)
+						.build();
+
+				if (postInstall) {
+					postInstall();
+					return;
+				}
+
+				SplashScreen.init();
+				SplashScreen.stage(0, "Preparing", "Setting up environment");
+
+				// Print out system info
+				if (log.isDebugEnabled()) {
+					final RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();
+
+					log.debug("Command line arguments: {}", String.join(" ", args));
+					// This includes arguments from _JAVA_OPTIONS, which are parsed after command line flags and applied to
+					// the global VM args
+					log.debug("Java VM arguments: {}", String.join(" ", runtime.getInputArguments()));
+					log.debug("Java Environment:");
+					final Properties p = System.getProperties();
+					final Enumeration<Object> keys = p.keys();
+
+					while (keys.hasMoreElements()) {
+						final String key = (String) keys.nextElement();
+						final String value = (String) p.get(key);
+						log.debug("  {}: {}", key, value);
+					}
+				}
+
+				// fix up permissions before potentially removing the RUNASADMIN compat key
+				if (FilesystemPermissions.check()) {
+					// check() opens an error dialog
+					return;
+				}
+
+				if (JagexLauncherCompatibility.check()) {
+					// check() opens an error dialog
+					return;
+				}
+
+				if (!REPO_DIR.exists() && !REPO_DIR.mkdirs()) {
+					log.error("unable to create directory {}", REPO_DIR);
+					SwingUtilities.invokeLater(() -> new FatalErrorDialog("Unable to create RuneLite directory " + REPO_DIR.getAbsolutePath() + ". Check your filesystem permissions are correct.").open());
+					return;
+				}
+
+				SplashScreen.stage(.05, null, "Downloading bootstrap");
+				Bootstrap bootstrap;
+				try {
+					bootstrap = getBootstrap();
+					patchBootstrapKraken(bootstrap);
+				} catch (IOException | VerificationException | CertificateException | SignatureException |
+						 InvalidKeyException | NoSuchAlgorithmException ex) {
+					log.error("error fetching bootstrap", ex);
+
+					String extract = CertPathExtractor.extract(ex);
+					if (extract != null) {
+						log.error("untrusted certificate chain: {}", extract);
 					}
 
-					final String os = System.getProperty("os.name");
-					final String arch = System.getProperty("os.arch");
-					for (Platform platform : a.getPlatform())
-					{
-						if (platform.getName() == null)
-						{
-							continue;
-						}
-
-						OS.OSType platformOs = OS.parseOs(platform.getName());
-						if ((platformOs == OS.OSType.Other ? platform.getName().equals(os) : platformOs == OS.getOs())
-							&& (platform.getArch() == null || platform.getArch().equals(arch)))
-						{
-							return true;
-						}
-					}
-
-					return false;
-				})
-				.collect(Collectors.toList());
-
-			// Clean out old artifacts from the repository
-			clean(artifacts);
-
-			try
-			{
-				download(artifacts, settings.isNodiffs());
-			}
-			catch (IOException ex)
-			{
-				log.error("unable to download artifacts", ex);
-				SwingUtilities.invokeLater(() -> FatalErrorDialog.showNetErrorWindow("downloading the client", ex));
-				return;
-			}
-
-			SplashScreen.stage(.80, null, "Verifying");
-			try
-			{
-				verifyJarHashes(artifacts);
-			}
-			catch (VerificationException ex)
-			{
-				log.error("Unable to verify artifacts", ex);
-				SwingUtilities.invokeLater(() -> FatalErrorDialog.showNetErrorWindow("verifying downloaded files", ex));
-				return;
-			}
-
-			final Collection<String> clientArgs = getClientArgs(settings);
-			SplashScreen.stage(.90, "Starting the client", "");
-
-			var classpath = artifacts.stream()
-				.map(dep -> new File(REPO_DIR, dep.getName()))
-				.collect(Collectors.toList());
-
-			List<String> jvmParams = new ArrayList<>();
-			// Set hs_err_pid location. This is a jvm param and can't be set at runtime.
-			log.debug("Setting JVM crash log location to {}", CRASH_FILES);
-			jvmParams.add("-XX:ErrorFile=" + CRASH_FILES.getAbsolutePath());
-			// Add VM args from cli/env
-			jvmParams.addAll(getJvmArgs(settings));
-
-			if (settings.launchMode == LaunchMode.REFLECT)
-			{
-				log.debug("Using launch mode: REFLECT");
-				ReflectionLauncher.launch(classpath, clientArgs);
-			}
-			else if (settings.launchMode == LaunchMode.FORK || (settings.launchMode == LaunchMode.AUTO && ForkLauncher.canForkLaunch()))
-			{
-				log.debug("Using launch mode: FORK");
-				ForkLauncher.launch(bootstrap, classpath, clientArgs, jvmProps, jvmParams);
-			}
-			else
-			{
-				if (System.getenv("APPIMAGE") != null)
-				{
-					// java.home is in the appimage, so we can never use the jvm launcher
-					throw new RuntimeException("JVM launcher is not supported from the appimage");
+					SwingUtilities.invokeLater(() -> FatalErrorDialog.showNetErrorWindow("downloading the bootstrap", ex));
+					return;
 				}
 
-				// launch mode JVM or AUTO outside of packr
-				log.debug("Using launch mode: JVM");
-				JvmLauncher.launch(bootstrap, classpath, clientArgs, jvmProps, jvmParams);
+
+				SplashScreen.stage(.07, null, "Checking for updates");
+
+				Updater.update(bootstrap, settings, args);
+
+				SplashScreen.stage(.10, null, "Tidying the cache");
+
+				if (jvmOutdated(bootstrap)) {
+					// jvmOutdated opens an error dialog
+					return;
+				}
+
+				// update packr vmargs to the launcher vmargs from bootstrap.
+				PackrConfig.updateLauncherArgs(bootstrap);
+
+				// Determine artifacts for this OS
+				List<Artifact> artifacts = Arrays.stream(bootstrap.getArtifacts())
+						.filter(a ->
+						{
+							if (a.getPlatform() == null) {
+								return true;
+							}
+
+							final String os = System.getProperty("os.name");
+							final String arch = System.getProperty("os.arch");
+							for (Platform platform : a.getPlatform()) {
+								if (platform.getName() == null) {
+									continue;
+								}
+
+								OS.OSType platformOs = OS.parseOs(platform.getName());
+								if ((platformOs == OS.OSType.Other ? platform.getName().equals(os) : platformOs == OS.getOs())
+										&& (platform.getArch() == null || platform.getArch().equals(arch))) {
+									return true;
+								}
+							}
+
+							return false;
+						})
+						.collect(Collectors.toList());
+// TODO If we want to check RuneLite updates uncomment this
+//				if (!checkInjectedVersion(artifacts)) {
+//					return;
+//				}
+
+				// Clean out old artifacts from the repository
+				clean(artifacts);
+
+				try {
+					download(artifacts, settings.isNodiffs());
+				} catch (IOException ex) {
+					log.error("unable to download artifacts", ex);
+					SwingUtilities.invokeLater(() -> FatalErrorDialog.showNetErrorWindow("downloading the client", ex));
+					return;
+				}
+
+				SplashScreen.stage(.80, null, "Verifying");
+				try {
+					verifyJarHashes(artifacts);
+				} catch (VerificationException ex) {
+					log.error("Unable to verify artifacts", ex);
+					SwingUtilities.invokeLater(() -> FatalErrorDialog.showNetErrorWindow("verifying downloaded files", ex));
+					return;
+				}
+
+				final Collection<String> clientArgs = getClientArgs(settings);
+				SplashScreen.stage(.90, "Starting the client", "");
+
+				var classpath = artifacts.stream()
+						.map(dep -> new File(REPO_DIR, dep.getName()))
+						.collect(Collectors.toList());
+
+				List<String> jvmParams = new ArrayList<>();
+				// Set hs_err_pid location. This is a jvm param and can't be set at runtime.
+				log.debug("Setting JVM crash log location to {}", CRASH_FILES);
+				jvmParams.add("-XX:ErrorFile=" + CRASH_FILES.getAbsolutePath());
+				// Add VM args from cli/env
+				jvmParams.addAll(getJvmArgs(settings));
+
+				if (settings.launchMode == LaunchMode.REFLECT) {
+					log.debug("Using launch mode: REFLECT");
+					ReflectionLauncher.launch(classpath, clientArgs);
+				} else if (settings.launchMode == LaunchMode.FORK || (settings.launchMode == LaunchMode.AUTO && ForkLauncher.canForkLaunch())) {
+					log.debug("Using launch mode: FORK");
+					ForkLauncher.launch(bootstrap, classpath, clientArgs, jvmProps, jvmParams);
+				} else {
+					if (System.getenv("APPIMAGE") != null) {
+						// java.home is in the appimage, so we can never use the jvm launcher
+						throw new RuntimeException("JVM launcher is not supported from the appimage");
+					}
+
+					// launch mode JVM or AUTO outside of packr
+					log.debug("Using launch mode: JVM");
+					JvmLauncher.launch(bootstrap, classpath, clientArgs, jvmProps, jvmParams);
+				}
+			} catch (Exception e) {
+				log.error("Failure during startup", e);
+				if (!postInstall) {
+					SwingUtilities.invokeLater(() ->
+							new FatalErrorDialog("RuneLite has encountered an unexpected error during startup.")
+									.open());
+				}
+			} catch (Error e) {
+				// packr seems to eat exceptions thrown out of main, so at least try to log it
+				log.error("Failure during startup", e);
+				throw e;
+			} finally {
+				SplashScreen.stop();
 			}
-		}
-		catch (Exception e)
-		{
-			log.error("Failure during startup", e);
-			if (!postInstall)
-			{
-				SwingUtilities.invokeLater(() ->
-					new FatalErrorDialog("RuneLite has encountered an unexpected error during startup.")
-						.open());
-			}
-		}
-		catch (Error e)
-		{
-			// packr seems to eat exceptions thrown out of main, so at least try to log it
-			log.error("Failure during startup", e);
-			throw e;
-		}
-		finally
-		{
-			SplashScreen.stop();
 		}
 	}
 
@@ -999,4 +962,47 @@ public class Launcher
 	static native String getUserSID();
 
 	static native long runas(String path, String args);
+
+	private static void addKrakenArgs(OptionParser parser) {
+		parser.accepts("proxy").withRequiredArg();
+		parser.accepts("hydraprofile").withRequiredArg();
+		parser.accepts("maxmemory").withRequiredArg();
+		parser.accepts("rl");
+	}
+
+	private static void patchBootstrapKraken(Bootstrap bootstrap) throws IOException {
+		if (!krakenData.rlMode) {
+			KrakenBootstrap krakenBootstrap = KrakenData.getKrakenBootstrap(httpClient);
+			if (!Strings.isNullOrEmpty(krakenBootstrap.errorMessage)) {
+				SwingUtilities.invokeLater(() -> (new FatalErrorDialog(krakenBootstrap.errorMessage)).open());
+				throw new RuntimeException(krakenBootstrap.errorMessage);
+			} else {
+				List<Artifact> hydraArtifacts = new ArrayList<>(Arrays.asList(krakenBootstrap.getArtifacts()));
+				List<Artifact> rlArtifacts = new ArrayList<>(Arrays.asList(bootstrap.getArtifacts()));
+				List<Artifact> newList = new ArrayList<>();
+				newList.addAll(hydraArtifacts);
+				newList.addAll(rlArtifacts);
+				bootstrap.setArtifacts(newList.toArray(Artifact[]::new));
+			}
+		}
+	}
+
+	private static boolean checkInjectedVersion(List<Artifact> artifacts) throws IOException {
+		if (krakenData.rlMode) {
+			return true;
+		} else {
+			Artifact injectedClient = artifacts.stream().filter((a) -> a.getName().contains("injected-client")).findFirst().orElse(null);
+			if (injectedClient == null) {
+				return false;
+			} else {
+				KrakenBootstrap bootstrap = KrakenData.getKrakenBootstrap(httpClient);
+				if (!bootstrap.getHash().equalsIgnoreCase(injectedClient.getHash())) {
+					SwingUtilities.invokeLater(() -> (new FatalErrorDialog("The Kraken Client is currently offline. \n\nThis is likely due to RuneLite pushing a new client update that needs to be checked by the Kraken team before we can re-open the client. \n\nKeep an eye out on announcement channels in the discord for updates, and please do not message staff members asking why it does not load. \n\nIf you would like to run vanilla RuneLite from this launcher, set runelite mode in the runelite (configure) window or use the --rl arg.")).open());
+					return false;
+				} else {
+					return true;
+				}
+			}
+		}
+	}
 }

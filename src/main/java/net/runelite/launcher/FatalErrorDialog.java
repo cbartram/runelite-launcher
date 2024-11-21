@@ -53,6 +53,8 @@ import javax.swing.JPanel;
 import javax.swing.JTextArea;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
+
+import com.krakenlauncher.SplashScreen;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -84,7 +86,7 @@ public class FatalErrorDialog extends JDialog
 
 		UIManager.put("Button.select", DARKER_GRAY_COLOR);
 
-		try (var in = FatalErrorDialog.class.getResourceAsStream(LauncherProperties.getRuneLite128()))
+		try (var in = FatalErrorDialog.class.getResourceAsStream("kraken.png"))
 		{
 			setIconImage(ImageIO.read(in));
 		}
@@ -92,7 +94,7 @@ public class FatalErrorDialog extends JDialog
 		{
 		}
 
-		try (var in = FatalErrorDialog.class.getResourceAsStream(LauncherProperties.getRuneLiteSplash()))
+		try (var in = FatalErrorDialog.class.getResourceAsStream("kraken.png"))
 		{
 			BufferedImage logo = ImageIO.read(in);
 			JLabel runelite = new JLabel();
@@ -115,7 +117,7 @@ public class FatalErrorDialog extends JDialog
 			}
 		});
 
-		setTitle("Fatal error starting RuneLite");
+		setTitle("Fatal error starting Kraken Client");
 		setLayout(new BorderLayout());
 
 		Container pane = getContentPane();
@@ -125,7 +127,7 @@ public class FatalErrorDialog extends JDialog
 		leftPane.setBackground(DARKER_GRAY_COLOR);
 		leftPane.setLayout(new BorderLayout());
 
-		JLabel title = new JLabel("There was a fatal error starting RuneLite");
+		JLabel title = new JLabel("There was a fatal error starting Kraken Client");
 		title.setForeground(Color.WHITE);
 		title.setFont(font.deriveFont(16.f));
 		title.setBorder(new EmptyBorder(10, 10, 10, 10));

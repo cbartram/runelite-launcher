@@ -48,6 +48,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+
+import com.krakenlauncher.SplashScreen;
 import lombok.extern.slf4j.Slf4j;
 import static net.runelite.launcher.Launcher.LAUNCHER_EXECUTABLE_NAME_OSX;
 import static net.runelite.launcher.Launcher.LAUNCHER_EXECUTABLE_NAME_WIN;
